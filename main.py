@@ -1,131 +1,76 @@
+from app import database
+
+from app.expenses import (
+    add_expense,
+    view_expenses,
+    update_expense,
+    delete_expense
+)
+
+from app.reports import (
+    total_expenses,
+    show_balance,
+    financial_dashboard
+)
+
+from app.utils import (
+    get_valid_amount,
+    get_valid_text
+)
+
+
+# ==========================================
+# DATABASE
+# ==========================================
+
+database.create_tables()
+
+
+# ==========================================
+# HEADER
+# ==========================================
+
 print("==============================")
 print("       BUDGETWISE")
 print("==============================")
-
 print()
 
 
-# INPUT VALIDATION
+# ==========================================
+# CREATE USER
+# ==========================================
 
-def get_valid_amount(prompt):
-    while True:
-        try:
-            amount = float(input(prompt))
-
-            if amount <= 0:
-                print("Amount must be greater than zero.")
-                continue
-
-            return amount
-
-        except ValueError:
-            print("Invalid amount. Please enter a number.")
-
-
-def get_valid_text(prompt):
-    while True:
-        value = input(prompt).strip()
-
-        if value == "":
-            print("This field cannot be empty.")
-            continue
-
-        return value
-
-
-# USER INFORMATION
-
-name = get_valid_text("What is your name? ")
-
-print()
-print(f"Welcome, {name}!")
-print("Let's help you manage your money.")
+name = get_valid_text(
+    "What is your name? "
+)
 
 income = get_valid_amount(
     "What is your monthly income? ₦"
 )
 
+
+# Save user to database
+user_id = database.create_user(
+    name,
+    income
+)
+
+
 print()
-print(f"Your monthly income is ₦{income:,.2f}")
+
+print(
+    f"Welcome, {name}!"
+)
+
+print(
+    f"Your monthly income is "
+    f"₦{income:,.2f}"
+)
 
 
-# STORE EXPENSES
-
-
-expenses = []
-
-# ADD EXPENSE
-
-def add_expense():
-
-    amount = get_valid_amount(
-        "Enter expense amount: ₦"
-    )
-
-    category = get_valid_text(
-        "Enter category: "
-    )
-
-    description = get_valid_text(
-        "Enter description: "
-    )
-
-    expense = {
-        "amount": amount,
-        "category": category,
-        "description": description
-    }
-
-    expenses.append(expense)
-
-    print("Expense added successfully!")
-
-
-# VIEW EXPENSES
-
-def view_expenses():
-
-    print("\n--------- EXPENSES ---------")
-
-    if len(expenses) == 0:
-        print("No expenses recorded.")
-        return
-
-    for expense in expenses:
-
-        print(f"Category: {expense['category']}")
-        print(f"Amount: ₦{expense['amount']:,.2f}")
-        print(f"Description: {expense['description']}")
-        print("---------------------------")
-
-
-# CALCULATE TOTAL EXPENSES
-
-def total_expenses():
-
-    total = 0
-
-    for expense in expenses:
-        total += expense["amount"]
-
-    return total
-
-
-
-# SHOW BALANCE
-
-def show_balance(income):
-
-    total = total_expenses()
-
-    balance = income - total
-
-    print(f"\nTotal income: ₦{income:,.2f}")
-    print(f"Total expenses: ₦{total:,.2f}")
-    print(f"Remaining balance: ₦{balance:,.2f}")
-
-
+# ==========================================
 # MAIN MENU
+# ==========================================
 
 while True:
 
@@ -133,40 +78,71 @@ while True:
 
     print("1. Add Expense")
     print("2. View Expenses")
-    print("3. View Total Expenses")
-    print("4. View Balance")
-    print("5. Exit")
+    print("3. Update Expense")
+    print("4. Delete Expense")
+    print("5. View Total Expenses")
+    print("6. View Balance")
+    print("7. Financial Dashboard")
+    print("8. Exit")
 
-    choice = input("Choose an option: ").strip()
+    choice = input(
+        "Choose an option: "
+    ).strip()
 
     if choice == "1":
 
-        add_expense()
+        add_expense(user_id)
 
     elif choice == "2":
 
-        view_expenses()
+        view_expenses(user_id)
 
     elif choice == "3":
 
-        print(
-            f"Total expenses: "
-            f"₦{total_expenses():,.2f}"
-        )
+        update_expense(user_id)
 
     elif choice == "4":
 
-        show_balance(income)
+        delete_expense(user_id)
 
     elif choice == "5":
 
-        print("Thank you for using BudgetWise!")
+        total = total_expenses(
+            user_id
+        )
+
+        print(
+            f"Total expenses: "
+            f"₦{total:,.2f}"
+        )
+
+    elif choice == "6":
+
+        show_balance(
+            user_id,
+            income
+        )
+
+    elif choice == "7":
+
+        financial_dashboard(
+            user_id,
+            income
+        )
+
+    elif choice == "8":
+
+        print(
+            "\nThank you for using "
+            "BudgetWise!"
+        )
 
         break
 
     else:
 
         print(
-            "Invalid option. "
-            "Please choose a number from 1 to 5."
+            "❌ Invalid option. "
+            "Please choose a number "
+            "from 1 to 8."
         )
