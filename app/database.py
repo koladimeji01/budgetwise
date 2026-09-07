@@ -92,6 +92,22 @@ def get_user(user_id):
 
     return user
 
+def get_user_by_name(name):
+
+    connection = create_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT id, name, income, password
+        FROM users
+        WHERE name = ?
+    """, (name,))
+
+    user = cursor.fetchone()
+
+    connection.close()
+
+    return user
 
 # ==============================
 # ADD EXPENSE
