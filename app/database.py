@@ -24,10 +24,11 @@ def create_tables():
 
     # USERS TABLE
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            income REAL NOT NULL
+      CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    income REAL NOT NULL,
+    password TEXT NOT NULL
         )
     """)
 
@@ -51,15 +52,15 @@ def create_tables():
 # CREATE USER
 # ==============================
 
-def create_user(name, income):
+def create_user(name, income, password):
 
     connection = create_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
-        INSERT INTO users (name, income)
-        VALUES (?, ?)
-    """, (name, income))
+        INSERT INTO users (name, income, password)
+        VALUES (?, ?, ?)
+    """, (name, income, password))
 
     connection.commit()
 
