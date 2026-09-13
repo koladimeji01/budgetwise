@@ -1,8 +1,12 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+import sqlite3
 
 from app import database
+from app import services
+
 from app.auth import (
     hash_password,
     verify_password,
@@ -30,16 +34,32 @@ security = HTTPBearer()
 
 
 # ==========================================
+# DATABASE ERROR HANDLER
+# ==========================================
+
+@app.exception_handler(sqlite3.Error)
+async def database_exception_handler(request, exc):
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "A database error occurred. Please try again later."
+        }
+    )
+
+
+# ==========================================
 # REQUEST MODELS
 # ==========================================
 
-class Expense(BaseModel):
-    user_id: int = Field(gt=0)
+class ExpenseCreate(BaseModel):
     amount: float = Field(gt=0)
+
     category: str = Field(
         min_length=2,
         max_length=50
     )
+
     description: str = Field(
         min_length=2,
         max_length=200
@@ -51,7 +71,9 @@ class User(BaseModel):
         min_length=2,
         max_length=50
     )
+
     income: float = Field(gt=0)
+
     password: str = Field(
         min_length=8,
         max_length=100
@@ -63,6 +85,7 @@ class LoginRequest(BaseModel):
         min_length=2,
         max_length=50
     )
+
     password: str = Field(
         min_length=8,
         max_length=100
@@ -117,22 +140,18 @@ class DashboardResponse(BaseModel):
 
 
 # ==========================================
-# AUTHENTICATION
+# GET CURRENT USER
 # ==========================================
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
-    """
-    Get the currently logged-in user
-    from the JWT token.
-    """
-
     token = credentials.credentials
 
     payload = decode_access_token(token)
 
     if not payload:
+
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired token"
@@ -141,6 +160,7 @@ def get_current_user(
     user_id = payload.get("user_id")
 
     if not user_id:
+
         raise HTTPException(
             status_code=401,
             detail="Invalid token"
@@ -149,6 +169,7 @@ def get_current_user(
     user = database.get_user(user_id)
 
     if not user:
+
         raise HTTPException(
             status_code=401,
             detail="User not found"
@@ -158,11 +179,12 @@ def get_current_user(
 
 
 # ==========================================
-# HOME ROUTE
+# HOME
 # ==========================================
 
 @app.get("/")
 def home():
+
     return {
         "message": "Welcome to BudgetWise API"
     }
@@ -174,13 +196,14 @@ def home():
 
 @app.get("/health")
 def health_check():
+
     return {
         "status": "healthy"
     }
 
 
 # ==========================================
-# REGISTER USER
+# CREATE USER
 # ==========================================
 
 @app.post(
@@ -189,23 +212,21 @@ def health_check():
 )
 def create_user(user: User):
 
-    # Check if username already exists
     existing_user = database.get_user_by_name(
         user.name
     )
 
     if existing_user:
+
         raise HTTPException(
             status_code=400,
             detail="Username already exists"
         )
 
-    # Hash the password before saving
     hashed_password = hash_password(
         user.password
     )
 
-    # Create the user
     user_id = database.create_user(
         user.name,
         user.income,
@@ -226,30 +247,29 @@ def create_user(user: User):
 @app.post("/login")
 def login(login_data: LoginRequest):
 
-    # Find user
     user = database.get_user_by_name(
         login_data.name
     )
 
     if not user:
+
         raise HTTPException(
             status_code=401,
             detail="Invalid username or password"
         )
 
-    # Check password
     password_is_correct = verify_password(
         login_data.password,
         user[3]
     )
 
     if not password_is_correct:
+
         raise HTTPException(
             status_code=401,
             detail="Invalid username or password"
         )
 
-    # Create JWT token
     access_token = create_access_token(
         user[0]
     )
@@ -262,64 +282,29 @@ def login(login_data: LoginRequest):
 
 
 # ==========================================
-# MY PROFILE
+# GET MY PROFILE
 # ==========================================
 
-@app.get("/users/me")
+@app.get(
+    "/users/me",
+    response_model=UserResponse
+)
 def get_my_profile(
     current_user=Depends(get_current_user)
 ):
 
-    return {
-        "id": current_user[0],
-        "name": current_user[1],
-        "income": current_user[2]
-    }
+    user_id = current_user[0]
 
+    profile = services.get_user_profile(user_id)
 
-# ==========================================
-# GET USER BY ID
-# ==========================================
+    if not profile:
 
-@app.get(
-    "/users/{user_id}",
-    response_model=UserResponse
-)
-def get_user(user_id: int):
-
-    user = database.get_user(user_id)
-
-    if not user:
         raise HTTPException(
             status_code=404,
             detail="User not found"
         )
 
-    expenses = database.get_expenses(user_id)
-
-    formatted_expenses = []
-
-    total = 0
-
-    for expense in expenses:
-
-        total += expense[1]
-
-        formatted_expenses.append({
-            "id": expense[0],
-            "amount": expense[1],
-            "category": expense[2],
-            "description": expense[3]
-        })
-
-    return {
-        "id": user[0],
-        "name": user[1],
-        "income": user[2],
-        "total_expenses": total,
-        "balance": user[2] - total,
-        "expenses": formatted_expenses
-    }
+    return profile
 
 
 # ==========================================
@@ -334,32 +319,18 @@ def get_expenses(
     current_user=Depends(get_current_user)
 ):
 
-    # Get logged-in user's ID
     user_id = current_user[0]
 
-    expenses = database.get_expenses(
-        user_id
-    )
-
-    formatted_expenses = []
-
-    for expense in expenses:
-
-        formatted_expenses.append({
-            "id": expense[0],
-            "amount": expense[1],
-            "category": expense[2],
-            "description": expense[3]
-        })
+    expenses = services.get_user_expenses(user_id)
 
     return {
         "user_id": user_id,
-        "expenses": formatted_expenses
+        "expenses": expenses
     }
 
 
 # ==========================================
-# ADD EXPENSE
+# CREATE EXPENSE
 # ==========================================
 
 @app.post(
@@ -367,40 +338,20 @@ def get_expenses(
     response_model=ExpenseResponse
 )
 def create_expense(
-    expense: Expense,
+    expense: ExpenseCreate,
     current_user=Depends(get_current_user)
 ):
 
-    # Get logged-in user's ID
     user_id = current_user[0]
 
-    # Make sure user_id from request
-    # matches the logged-in user
-    if expense.user_id != user_id:
-        raise HTTPException(
-            status_code=403,
-            detail="You can only add expenses to your own account"
-        )
-
-    database.add_expense(
+    new_expense = services.create_user_expense(
         user_id,
         expense.amount,
         expense.category,
         expense.description
     )
 
-    expenses = database.get_expenses(
-        user_id
-    )
-
-    new_expense = expenses[-1]
-
-    return {
-        "id": new_expense[0],
-        "amount": new_expense[1],
-        "category": new_expense[2],
-        "description": new_expense[3]
-    }
+    return new_expense
 
 
 # ==========================================
@@ -413,19 +364,13 @@ def create_expense(
 )
 def update_expense(
     expense_id: int,
-    expense: Expense,
+    expense: ExpenseCreate,
     current_user=Depends(get_current_user)
 ):
 
     user_id = current_user[0]
 
-    if expense.user_id != user_id:
-        raise HTTPException(
-            status_code=403,
-            detail="You can only update your own expenses"
-        )
-
-    updated = database.update_expense(
+    updated_expense = services.update_user_expense(
         user_id,
         expense_id,
         expense.amount,
@@ -433,18 +378,14 @@ def update_expense(
         expense.description
     )
 
-    if not updated:
+    if not updated_expense:
+
         raise HTTPException(
             status_code=404,
             detail="Expense not found"
         )
 
-    return {
-        "id": expense_id,
-        "amount": expense.amount,
-        "category": expense.category,
-        "description": expense.description
-    }
+    return updated_expense
 
 
 # ==========================================
@@ -459,12 +400,13 @@ def delete_expense(
 
     user_id = current_user[0]
 
-    deleted = database.delete_expense(
+    deleted = services.delete_user_expense(
         user_id,
         expense_id
     )
 
     if not deleted:
+
         raise HTTPException(
             status_code=404,
             detail="Expense not found"
@@ -480,113 +422,24 @@ def delete_expense(
 # ==========================================
 
 @app.get(
-    "/users/{user_id}/dashboard",
+    "/users/me/dashboard",
     response_model=DashboardResponse
 )
-def get_dashboard(user_id: int):
+def get_dashboard(
+    current_user=Depends(get_current_user)
+):
 
-    user = database.get_user(user_id)
+    user_id = current_user[0]
 
-    if not user:
+    dashboard = services.get_user_dashboard(
+        user_id
+    )
+
+    if not dashboard:
+
         raise HTTPException(
             status_code=404,
             detail="User not found"
         )
 
-    expenses = database.get_expenses(
-        user_id
-    )
-
-    total_expenses = sum(
-        expense[1]
-        for expense in expenses
-    )
-
-    balance = user[2] - total_expenses
-
-    # Spending by category
-    spending_by_category = {}
-
-    for expense in expenses:
-
-        category = expense[2]
-        amount = expense[1]
-
-        if category not in spending_by_category:
-            spending_by_category[category] = 0
-
-        spending_by_category[category] += amount
-
-    # Highest spending category
-    if spending_by_category:
-
-        highest_category = max(
-            spending_by_category,
-            key=spending_by_category.get
-        )
-
-        highest_amount = spending_by_category[
-            highest_category
-        ]
-
-    else:
-
-        highest_category = None
-        highest_amount = 0
-
-    # Savings rate
-    if user[2] > 0:
-
-        savings_rate = (
-            balance / user[2]
-        ) * 100
-
-    else:
-
-        savings_rate = 0
-
-    # Spending warning
-    if total_expenses > user[2]:
-
-        warning = (
-            "⚠️ You have spent more than your income."
-        )
-
-    elif total_expenses >= user[2] * 0.8:
-
-        warning = (
-            "⚠️ You have used 80% or more of your income."
-        )
-
-    else:
-
-        warning = (
-            "✅ Your spending is within a healthy range."
-        )
-
-    return {
-
-        "user": {
-            "id": user[0],
-            "name": user[1],
-            "income": user[2]
-        },
-
-        "income": user[2],
-
-        "total_expenses": total_expenses,
-
-        "balance": balance,
-
-        "savings_rate": savings_rate,
-
-        "spending_by_category":
-            spending_by_category,
-
-        "highest_spending_category": {
-            "category": highest_category,
-            "amount": highest_amount
-        },
-
-        "warning": warning
-    }
+    return dashboard
