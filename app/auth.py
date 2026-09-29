@@ -1,7 +1,13 @@
-from pwdlib import PasswordHash
+from datetime import datetime, timedelta, timezone
+
 import jwt
 
-from app.config import SECRET_KEY, ALGORITHM
+from pwdlib import PasswordHash
+
+from app.config import (
+    SECRET_KEY,
+    ALGORITHM
+)
 
 
 # ==========================================
@@ -11,33 +17,56 @@ from app.config import SECRET_KEY, ALGORITHM
 password_hash = PasswordHash.recommended()
 
 
-# ==========================================
-# HASH PASSWORD
-# ==========================================
+def hash_password(password: str) -> str:
+    """
+    Hash a plain-text password.
+    """
 
-def hash_password(password):
-    return password_hash.hash(password)
-
-
-# ==========================================
-# VERIFY PASSWORD
-# ==========================================
-
-def verify_password(password, hashed_password):
-    return password_hash.verify(
-        password,
-        hashed_password
+    return password_hash.hash(
+        password
     )
+
+
+def verify_password(
+    password: str,
+    hashed_password: str
+) -> bool:
+    """
+    Verify a plain-text password
+    against its hashed version.
+    """
+
+    try:
+
+        return password_hash.verify(
+            password,
+            hashed_password
+        )
+
+    except Exception:
+
+        return False
 
 
 # ==========================================
 # CREATE ACCESS TOKEN
 # ==========================================
 
-def create_access_token(user_id):
+def create_access_token(
+    user_id: int
+) -> str:
+    """
+    Create a JWT access token for a user.
+    """
+
+    expiration_time = (
+        datetime.now(timezone.utc)
+        + timedelta(hours=24)
+    )
 
     payload = {
-        "user_id": user_id
+        "user_id": user_id,
+        "exp": expiration_time
     }
 
     token = jwt.encode(
@@ -53,7 +82,16 @@ def create_access_token(user_id):
 # DECODE ACCESS TOKEN
 # ==========================================
 
-def decode_access_token(token):
+def decode_access_token(
+    token: str
+):
+    """
+    Decode and validate a JWT access token.
+
+    Returns:
+        Payload dictionary if valid.
+        None if invalid or expired.
+    """
 
     try:
 
@@ -65,6 +103,14 @@ def decode_access_token(token):
 
         return payload
 
+    except jwt.ExpiredSignatureError:
+
+        return None
+
     except jwt.InvalidTokenError:
 
-        return None 
+        return None
+
+    except Exception:
+
+        return None

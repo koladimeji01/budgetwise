@@ -1,15 +1,20 @@
 import sqlite3
 
 from app.config import DATABASE_NAME
+from app.logging_config import logger
 
 
 # ==========================================
-# DATABASE CONNECTION
+# CREATE DATABASE CONNECTION
 # ==========================================
 
 def create_connection():
+
     try:
-        connection = sqlite3.connect(DATABASE_NAME)
+
+        connection = sqlite3.connect(
+            DATABASE_NAME
+        )
 
         connection.execute(
             "PRAGMA foreign_keys = ON"
@@ -18,37 +23,49 @@ def create_connection():
         return connection
 
     except sqlite3.Error as error:
-        print(
+
+        logger.error(
             f"Database connection error: {error}"
         )
+
         raise
-    
+
+
 # ==========================================
-# CREATE TABLES
+# CREATE DATABASE TABLES
 # ==========================================
 
 def create_tables():
+
     connection = create_connection()
 
     try:
+
         cursor = connection.cursor()
 
+        # ----------------------------------
         # USERS TABLE
+        # ----------------------------------
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                income REAL NOT NULL,
-                password TEXT NOT NULL
+                name TEXT NOT NULL UNIQUE,
+                income REAL NOT NULL CHECK(income > 0),
+                password TEXT NOT NULL,
+                email TEXT
             )
         """)
 
+        # ----------------------------------
         # EXPENSES TABLE
+        # ----------------------------------
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS expenses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
-                amount REAL NOT NULL,
+                amount REAL NOT NULL CHECK(amount > 0),
                 category TEXT NOT NULL,
                 description TEXT NOT NULL,
 
@@ -58,14 +75,45 @@ def create_tables():
             )
         """)
 
+        # ----------------------------------
+        # EXPENSE INDEX
+        # ----------------------------------
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS
+            idx_expenses_user_id
+            ON expenses(user_id)
+        """)
+
+        # ----------------------------------
+        # EMAIL UNIQUE INDEX
+        # ----------------------------------
+
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+            idx_users_email
+            ON users(email)
+            WHERE email IS NOT NULL
+        """)
+
         connection.commit()
 
+        logger.info(
+            "Database tables created successfully"
+        )
+
     except sqlite3.Error as error:
+
         connection.rollback()
-        print(f"Database error while creating tables: {error}")
+
+        logger.error(
+            f"Database error while creating tables: {error}"
+        )
+
         raise
 
     finally:
+
         connection.close()
 
 
@@ -73,23 +121,32 @@ def create_tables():
 # CREATE USER
 # ==========================================
 
-def create_user(name, income, password):
+def create_user(
+    name,
+    income,
+    password,
+    email
+):
+
     connection = create_connection()
 
     try:
+
         cursor = connection.cursor()
 
         cursor.execute("""
             INSERT INTO users (
                 name,
                 income,
-                password
+                password,
+                email
             )
-            VALUES (?, ?, ?)
+            VALUES (?, ?, ?, ?)
         """, (
             name,
             income,
-            password
+            password,
+            email
         ))
 
         connection.commit()
@@ -99,11 +156,17 @@ def create_user(name, income, password):
         return user_id
 
     except sqlite3.Error as error:
+
         connection.rollback()
-        print(f"Database error while creating user: {error}")
+
+        logger.error(
+            f"Database error while creating user: {error}"
+        )
+
         raise
 
     finally:
+
         connection.close()
 
 
@@ -112,29 +175,35 @@ def create_user(name, income, password):
 # ==========================================
 
 def get_user(user_id):
+
     connection = create_connection()
 
     try:
+
         cursor = connection.cursor()
 
         cursor.execute("""
             SELECT
                 id,
                 name,
-                income
+                income,
+                email
             FROM users
             WHERE id = ?
         """, (user_id,))
 
-        user = cursor.fetchone()
-
-        return user
+        return cursor.fetchone()
 
     except sqlite3.Error as error:
-        print(f"Database error while getting user: {error}")
+
+        logger.error(
+            f"Database error while getting user: {error}"
+        )
+
         raise
 
     finally:
+
         connection.close()
 
 
@@ -143,9 +212,11 @@ def get_user(user_id):
 # ==========================================
 
 def get_user_by_name(name):
+
     connection = create_connection()
 
     try:
+
         cursor = connection.cursor()
 
         cursor.execute("""
@@ -153,20 +224,64 @@ def get_user_by_name(name):
                 id,
                 name,
                 income,
-                password
+                password,
+                email
             FROM users
             WHERE name = ?
+            LIMIT 1
         """, (name,))
 
-        user = cursor.fetchone()
-
-        return user
+        return cursor.fetchone()
 
     except sqlite3.Error as error:
-        print(f"Database error while getting user by name: {error}")
+
+        logger.error(
+            f"Database error while getting user by name: {error}"
+        )
+
         raise
 
     finally:
+
+        connection.close()
+
+
+# ==========================================
+# GET USER BY EMAIL
+# ==========================================
+
+def get_user_by_email(email):
+
+    connection = create_connection()
+
+    try:
+
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            SELECT
+                id,
+                name,
+                income,
+                password,
+                email
+            FROM users
+            WHERE email = ?
+            LIMIT 1
+        """, (email,))
+
+        return cursor.fetchone()
+
+    except sqlite3.Error as error:
+
+        logger.error(
+            f"Database error while getting user by email: {error}"
+        )
+
+        raise
+
+    finally:
+
         connection.close()
 
 
@@ -180,9 +295,11 @@ def add_expense(
     category,
     description
 ):
+
     connection = create_connection()
 
     try:
+
         cursor = connection.cursor()
 
         cursor.execute("""
@@ -202,16 +319,20 @@ def add_expense(
 
         connection.commit()
 
-        expense_id = cursor.lastrowid
-
-        return expense_id
+        return cursor.lastrowid
 
     except sqlite3.Error as error:
+
         connection.rollback()
-        print(f"Database error while adding expense: {error}")
+
+        logger.error(
+            f"Database error while adding expense: {error}"
+        )
+
         raise
 
     finally:
+
         connection.close()
 
 
@@ -220,9 +341,11 @@ def add_expense(
 # ==========================================
 
 def get_expenses(user_id):
+
     connection = create_connection()
 
     try:
+
         cursor = connection.cursor()
 
         cursor.execute("""
@@ -236,15 +359,18 @@ def get_expenses(user_id):
             ORDER BY id DESC
         """, (user_id,))
 
-        expenses = cursor.fetchall()
-
-        return expenses
+        return cursor.fetchall()
 
     except sqlite3.Error as error:
-        print(f"Database error while getting expenses: {error}")
+
+        logger.error(
+            f"Database error while getting expenses: {error}"
+        )
+
         raise
 
     finally:
+
         connection.close()
 
 
@@ -259,9 +385,11 @@ def update_expense(
     category,
     description
 ):
+
     connection = create_connection()
 
     try:
+
         cursor = connection.cursor()
 
         cursor.execute("""
@@ -283,16 +411,20 @@ def update_expense(
 
         connection.commit()
 
-        updated = cursor.rowcount
-
-        return updated
+        return cursor.rowcount
 
     except sqlite3.Error as error:
+
         connection.rollback()
-        print(f"Database error while updating expense: {error}")
+
+        logger.error(
+            f"Database error while updating expense: {error}"
+        )
+
         raise
 
     finally:
+
         connection.close()
 
 
@@ -300,10 +432,15 @@ def update_expense(
 # DELETE EXPENSE
 # ==========================================
 
-def delete_expense(user_id, expense_id):
+def delete_expense(
+    user_id,
+    expense_id
+):
+
     connection = create_connection()
 
     try:
+
         cursor = connection.cursor()
 
         cursor.execute("""
@@ -318,14 +455,18 @@ def delete_expense(user_id, expense_id):
 
         connection.commit()
 
-        deleted = cursor.rowcount
-
-        return deleted
+        return cursor.rowcount
 
     except sqlite3.Error as error:
+
         connection.rollback()
-        print(f"Database error while deleting expense: {error}")
+
+        logger.error(
+            f"Database error while deleting expense: {error}"
+        )
+
         raise
 
     finally:
+
         connection.close()

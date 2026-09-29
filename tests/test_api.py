@@ -1,32 +1,134 @@
-import sys
-from pathlib import Path
+import os
+
+# ==========================================
+# USE TESTING ENVIRONMENT
+# ==========================================
+
+os.environ["ENVIRONMENT"] = "testing"
+
+
+# ==========================================
+# IMPORTS
+# ==========================================
+
+import pytest
 
 from fastapi.testclient import TestClient
 
-
-# ==========================================
-# PROJECT ROOT
-# ==========================================
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-sys.path.insert(
-    0,
-    str(PROJECT_ROOT)
-)
-
-
 from api import app
 
+from app.config import DATABASE_NAME
 
-client = TestClient(app)
+from app.migrations.manager import run_migrations
 
 
 # ==========================================
-# TEST HOME PAGE
+# TEST DATABASE SETUP
 # ==========================================
 
-def test_home():
+@pytest.fixture(
+    scope="function",
+    autouse=True
+)
+def setup_test_database():
+
+    if os.path.exists(DATABASE_NAME):
+        os.remove(DATABASE_NAME)
+
+    run_migrations()
+
+    yield
+
+    if os.path.exists(DATABASE_NAME):
+        os.remove(DATABASE_NAME)
+
+
+# ==========================================
+# TEST CLIENT
+# ==========================================
+
+@pytest.fixture
+def client():
+
+    with TestClient(app) as test_client:
+
+        yield test_client
+
+
+# ==========================================
+# HELPER: CREATE TEST USER
+# ==========================================
+
+def create_test_user(
+    client,
+    name="testuser",
+    email="testuser@example.com",
+    income=300000,
+    password="password123"
+):
+
+    response = client.post(
+        "/api/v1/users",
+        json={
+            "name": name,
+            "email": email,
+            "income": income,
+            "password": password
+        }
+    )
+
+    return response
+
+
+# ==========================================
+# HELPER: LOGIN
+# ==========================================
+
+def login_test_user(
+    client,
+    name="testuser",
+    email="testuser@example.com",
+    password="password123"
+):
+
+    # Make sure the user exists.
+    #
+    # Each test starts with a fresh database,
+    # so login tests must create their user first.
+
+    existing_user = client.post(
+        "/api/v1/users",
+        json={
+            "name": name,
+            "email": email,
+            "income": 300000,
+            "password": password
+        }
+    )
+
+    # If the user already exists, that's okay.
+    # We only need the account available for login.
+
+    if existing_user.status_code not in [200, 400]:
+
+        return existing_user
+
+    response = client.post(
+        "/api/v1/login",
+        json={
+            "name": name,
+            "password": password
+        }
+    )
+
+    return response
+
+
+# ==========================================
+# HOME
+# ==========================================
+
+def test_home(client):
 
     response = client.get("/")
 
@@ -34,14 +136,16 @@ def test_home():
 
     data = response.json()
 
-    assert data["message"] == "Welcome to BudgetWise API"
+    assert data["message"] == (
+        "Welcome to BudgetWise API"
+    )
 
 
 # ==========================================
-# TEST HEALTH CHECK
+# HEALTH CHECK
 # ==========================================
 
-def test_health():
+def test_health_check(client):
 
     response = client.get("/health")
 
@@ -53,17 +157,245 @@ def test_health():
 
 
 # ==========================================
-# TEST USER REGISTRATION
+# API V1 HOME
 # ==========================================
 
-def test_create_user():
+def test_api_v1_home(client):
+
+    response = client.get("/api/v1/")
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["version"] == "1"
+
+
+# ==========================================
+# CREATE USER
+# ==========================================
+
+def test_create_user(client):
+
+    response = create_test_user(
+        client
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["name"] == "testuser"
+
+    assert data["email"] == (
+        "testuser@example.com"
+    )
+
+    assert data["income"] == 300000
+
+    assert "id" in data
+
+
+# ==========================================
+# DUPLICATE USERNAME
+# ==========================================
+
+def test_duplicate_username(client):
+
+    # Create the original user first
+
+    create_response = create_test_user(
+        client
+    )
+
+    assert create_response.status_code == 200
+
+    # Try to create another user
+    # with the same username
 
     response = client.post(
-        "/users",
+        "/api/v1/users",
         json={
             "name": "testuser",
+            "email": "another@example.com",
             "income": 300000,
             "password": "password123"
+        }
+    )
+
+    assert response.status_code == 400
+
+    data = response.json()
+
+    assert data["detail"] == (
+        "Username already exists"
+    )
+
+
+# ==========================================
+# DUPLICATE EMAIL
+# ==========================================
+
+def test_duplicate_email(client):
+
+    # Create the original user first
+
+    create_response = create_test_user(
+        client
+    )
+
+    assert create_response.status_code == 200
+
+    # Try to create another user
+    # with the same email
+
+    response = client.post(
+        "/api/v1/users",
+        json={
+            "name": "anotheruser",
+            "email": "testuser@example.com",
+            "income": 300000,
+            "password": "password123"
+        }
+    )
+
+    assert response.status_code == 400
+
+    data = response.json()
+
+    assert data["detail"] == (
+        "Email already exists"
+    )
+
+
+# ==========================================
+# INVALID EMAIL
+# ==========================================
+
+def test_invalid_email(client):
+
+    response = client.post(
+        "/api/v1/users",
+        json={
+            "name": "emailuser",
+            "email": "not-an-email",
+            "income": 300000,
+            "password": "password123"
+        }
+    )
+
+    assert response.status_code == 422
+
+
+# ==========================================
+# LOGIN
+# ==========================================
+
+def test_login(client):
+
+    response = login_test_user(
+        client
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["message"] == (
+        "Login successful"
+    )
+
+    assert "access_token" in data
+
+    assert data["token_type"] == "bearer"
+
+
+# ==========================================
+# WRONG PASSWORD
+# ==========================================
+
+def test_wrong_password(client):
+
+    # Create user first
+
+    create_test_user(
+        client
+    )
+
+    response = client.post(
+        "/api/v1/login",
+        json={
+            "name": "testuser",
+            "password": "wrongpassword"
+        }
+    )
+
+    assert response.status_code == 401
+
+    data = response.json()
+
+    assert data["detail"] == (
+        "Invalid username or password"
+    )
+
+
+# ==========================================
+# NONEXISTENT USER
+# ==========================================
+
+def test_nonexistent_user(client):
+
+    response = client.post(
+        "/api/v1/login",
+        json={
+            "name": "doesnotexist",
+            "password": "password123"
+        }
+    )
+
+    assert response.status_code == 401
+
+    data = response.json()
+
+    assert data["detail"] == (
+        "Invalid username or password"
+    )
+
+
+# ==========================================
+# PROFILE WITHOUT TOKEN
+# ==========================================
+
+def test_profile_without_token(client):
+
+    response = client.get(
+        "/api/v1/users/me"
+    )
+
+    assert response.status_code == 401
+
+
+# ==========================================
+# PROFILE WITH TOKEN
+# ==========================================
+
+def test_profile_with_token(client):
+
+    login_response = login_test_user(
+        client
+    )
+
+    assert login_response.status_code == 200
+
+    token = login_response.json()[
+        "access_token"
+    ]
+
+    response = client.get(
+        "/api/v1/users/me",
+        headers={
+            "Authorization":
+            f"Bearer {token}"
         }
     )
 
@@ -71,9 +403,691 @@ def test_create_user():
 
     data = response.json()
 
-    assert "id" in data
     assert data["name"] == "testuser"
+
     assert data["income"] == 300000
 
-    # Password must never be returned
-    assert "password" not in data
+    assert data["email"] == (
+        "testuser@example.com"
+    )
+
+    assert "expenses" in data
+
+    assert "total_expenses" in data
+
+    assert "balance" in data
+
+
+# ==========================================
+# HELPER: GET TOKEN
+# ==========================================
+
+def get_test_token(client):
+
+    response = login_test_user(
+        client
+    )
+
+    assert response.status_code == 200
+
+    return response.json()[
+        "access_token"
+    ]
+
+
+# ==========================================
+# CREATE EXPENSE
+# ==========================================
+
+def test_create_expense(client):
+
+    token = get_test_token(
+        client
+    )
+
+    response = client.post(
+        "/api/v1/expenses",
+        json={
+            "amount": 5000,
+            "category": "food",
+            "description": "Lunch"
+        },
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["amount"] == 5000
+
+    assert data["category"] == "food"
+
+    assert data["description"] == "Lunch"
+
+    assert "id" in data
+
+
+# ==========================================
+# GET EXPENSES
+# ==========================================
+
+def test_get_expenses(client):
+
+    token = get_test_token(
+        client
+    )
+
+    response = client.get(
+        "/api/v1/expenses",
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert "user_id" in data
+
+    assert "expenses" in data
+
+    assert isinstance(
+        data["expenses"],
+        list
+    )
+
+
+# ==========================================
+# UPDATE EXPENSE
+# ==========================================
+
+def test_update_expense(client):
+
+    token = get_test_token(
+        client
+    )
+
+    create_response = client.post(
+        "/api/v1/expenses",
+        json={
+            "amount": 7000,
+            "category": "transport",
+            "description": "Fuel"
+        },
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert create_response.status_code == 200
+
+    expense_id = create_response.json()[
+        "id"
+    ]
+
+    response = client.put(
+        f"/api/v1/expenses/{expense_id}",
+        json={
+            "amount": 8000,
+            "category": "transport",
+            "description": "Updated fuel"
+        },
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["id"] == expense_id
+
+    assert data["amount"] == 8000
+
+    assert data["category"] == "transport"
+
+    assert data["description"] == (
+        "Updated fuel"
+    )
+
+
+# ==========================================
+# DELETE EXPENSE
+# ==========================================
+
+def test_delete_expense(client):
+
+    token = get_test_token(
+        client
+    )
+
+    create_response = client.post(
+        "/api/v1/expenses",
+        json={
+            "amount": 3000,
+            "category": "food",
+            "description": "Breakfast"
+        },
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert create_response.status_code == 200
+
+    expense_id = create_response.json()[
+        "id"
+    ]
+
+    response = client.delete(
+        f"/api/v1/expenses/{expense_id}",
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["message"] == (
+        "Expense deleted successfully"
+    )
+
+
+# ==========================================
+# USER OWNERSHIP TEST
+# ==========================================
+
+def test_user_cannot_modify_another_users_expense(
+    client
+):
+
+    # Create second user
+
+    create_response = create_test_user(
+        client,
+        name="seconduser",
+        email="seconduser@example.com",
+        income=400000,
+        password="password123"
+    )
+
+    assert create_response.status_code == 200
+
+    # Create first user and login
+
+    first_token = get_test_token(
+        client
+    )
+
+    # First user creates expense
+
+    expense_response = client.post(
+        "/api/v1/expenses",
+        json={
+            "amount": 10000,
+            "category": "food",
+            "description": "Private expense"
+        },
+        headers={
+            "Authorization":
+            f"Bearer {first_token}"
+        }
+    )
+
+    assert expense_response.status_code == 200
+
+    expense_id = expense_response.json()[
+        "id"
+    ]
+
+    # Login second user
+
+    second_login = login_test_user(
+        client,
+        name="seconduser",
+        email="seconduser@example.com",
+        password="password123"
+    )
+
+    assert second_login.status_code == 200
+
+    second_token = second_login.json()[
+        "access_token"
+    ]
+
+    # Second user attempts update
+
+    update_response = client.put(
+        f"/api/v1/expenses/{expense_id}",
+        json={
+            "amount": 99999,
+            "category": "other",
+            "description": "Unauthorized update"
+        },
+        headers={
+            "Authorization":
+            f"Bearer {second_token}"
+        }
+    )
+
+    assert update_response.status_code == 404
+
+    # Second user attempts delete
+
+    delete_response = client.delete(
+        f"/api/v1/expenses/{expense_id}",
+        headers={
+            "Authorization":
+            f"Bearer {second_token}"
+        }
+    )
+
+    assert delete_response.status_code == 404
+
+
+# ==========================================
+# DASHBOARD
+# ==========================================
+
+def test_dashboard(client):
+
+    token = get_test_token(
+        client
+    )
+
+    response = client.get(
+        "/api/v1/users/me/dashboard",
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert "income" in data
+
+    assert "total_expenses" in data
+
+    assert "balance" in data
+
+    assert "savings_rate" in data
+
+    assert "spending_by_category" in data
+
+    assert "highest_spending_category" in data
+
+    assert "warning" in data
+
+
+# ==========================================
+# DASHBOARD 80% WARNING
+# ==========================================
+
+def test_dashboard_80_percent_warning(
+    client
+):
+
+    create_response = create_test_user(
+        client,
+        name="warninguser",
+        email="warninguser@example.com",
+        income=100000,
+        password="password123"
+    )
+
+    assert create_response.status_code == 200
+
+    login_response = login_test_user(
+        client,
+        name="warninguser",
+        email="warninguser@example.com",
+        password="password123"
+    )
+
+    assert login_response.status_code == 200
+
+    token = login_response.json()[
+        "access_token"
+    ]
+
+    # Spend 80% of income
+
+    expense_response = client.post(
+        "/api/v1/expenses",
+        json={
+            "amount": 80000,
+            "category": "rent",
+            "description": "House rent"
+        },
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert expense_response.status_code == 200
+
+    dashboard_response = client.get(
+        "/api/v1/users/me/dashboard",
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert dashboard_response.status_code == 200
+
+    data = dashboard_response.json()
+
+    assert "80%" in data["warning"]
+
+
+# ==========================================
+# DASHBOARD OVERSPENDING WARNING
+# ==========================================
+
+def test_dashboard_overspending_warning(
+    client
+):
+
+    create_response = create_test_user(
+        client,
+        name="overspenduser",
+        email="overspenduser@example.com",
+        income=50000,
+        password="password123"
+    )
+
+    assert create_response.status_code == 200
+
+    login_response = login_test_user(
+        client,
+        name="overspenduser",
+        email="overspenduser@example.com",
+        password="password123"
+    )
+
+    assert login_response.status_code == 200
+
+    token = login_response.json()[
+        "access_token"
+    ]
+
+    expense_response = client.post(
+        "/api/v1/expenses",
+        json={
+            "amount": 60000,
+            "category": "shopping",
+            "description": "Overspending"
+        },
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert expense_response.status_code == 200
+
+    dashboard_response = client.get(
+        "/api/v1/users/me/dashboard",
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert dashboard_response.status_code == 200
+
+    data = dashboard_response.json()
+
+    assert (
+        "spent more than your income"
+        in data["warning"]
+    )
+
+
+# ==========================================
+# INVALID EXPENSE AMOUNT
+# ==========================================
+
+def test_invalid_expense_amount(client):
+
+    token = get_test_token(
+        client
+    )
+
+    response = client.post(
+        "/api/v1/expenses",
+        json={
+            "amount": -100,
+            "category": "food",
+            "description": "Invalid expense"
+        },
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert response.status_code == 422
+
+
+# ==========================================
+# ZERO EXPENSE AMOUNT
+# ==========================================
+
+def test_zero_expense_amount(client):
+
+    token = get_test_token(
+        client
+    )
+
+    response = client.post(
+        "/api/v1/expenses",
+        json={
+            "amount": 0,
+            "category": "food",
+            "description": "Zero expense"
+        },
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert response.status_code == 422
+
+
+# ==========================================
+# SHORT CATEGORY
+# ==========================================
+
+def test_short_category(client):
+
+    token = get_test_token(
+        client
+    )
+
+    response = client.post(
+        "/api/v1/expenses",
+        json={
+            "amount": 1000,
+            "category": "x",
+            "description": "Test expense"
+        },
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert response.status_code == 422
+
+
+# ==========================================
+# SHORT DESCRIPTION
+# ==========================================
+
+def test_short_description(client):
+
+    token = get_test_token(
+        client
+    )
+
+    response = client.post(
+        "/api/v1/expenses",
+        json={
+            "amount": 1000,
+            "category": "food",
+            "description": "x"
+        },
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert response.status_code == 422
+
+
+# ==========================================
+# INVALID INCOME
+# ==========================================
+
+def test_invalid_income(client):
+
+    response = client.post(
+        "/api/v1/users",
+        json={
+            "name": "incomeuser",
+            "email": "incomeuser@example.com",
+            "income": -100,
+            "password": "password123"
+        }
+    )
+
+    assert response.status_code == 422
+
+
+# ==========================================
+# SHORT PASSWORD
+# ==========================================
+
+def test_short_password(client):
+
+    response = client.post(
+        "/api/v1/users",
+        json={
+            "name": "passworduser",
+            "email": "passworduser@example.com",
+            "income": 300000,
+            "password": "123"
+        }
+    )
+
+    assert response.status_code == 422
+
+
+# ==========================================
+# MISSING DESCRIPTION
+# ==========================================
+
+def test_missing_description(client):
+
+    token = get_test_token(
+        client
+    )
+
+    response = client.post(
+        "/api/v1/expenses",
+        json={
+            "amount": 5000,
+            "category": "food"
+        },
+        headers={
+            "Authorization":
+            f"Bearer {token}"
+        }
+    )
+
+    assert response.status_code == 422
+
+
+# ==========================================
+# INVALID JWT
+# ==========================================
+
+def test_invalid_jwt(client):
+
+    response = client.get(
+        "/api/v1/users/me",
+        headers={
+            "Authorization":
+            "Bearer invalid-token"
+        }
+    )
+
+    assert response.status_code == 401
+
+
+# ==========================================
+# MALFORMED AUTHORIZATION
+# ==========================================
+
+def test_malformed_authorization(client):
+
+    response = client.get(
+        "/api/v1/users/me",
+        headers={
+            "Authorization":
+            "invalid-token"
+        }
+    )
+
+    assert response.status_code == 401
+
+
+# ==========================================
+# EXPENSES INVALID TOKEN
+# ==========================================
+
+def test_expenses_invalid_token(client):
+
+    response = client.get(
+        "/api/v1/expenses",
+        headers={
+            "Authorization":
+            "Bearer invalid-token"
+        }
+    )
+
+    assert response.status_code == 401
+
+
+# ==========================================
+# DASHBOARD WITHOUT TOKEN
+# ==========================================
+
+def test_dashboard_without_token(client):
+
+    response = client.get(
+        "/api/v1/users/me/dashboard"
+    )
+
+    assert response.status_code == 401

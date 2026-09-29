@@ -36,6 +36,7 @@ def get_user_profile(user_id):
         "id": user[0],
         "name": user[1],
         "income": user[2],
+        "email": user[3],
         "total_expenses": total_expenses,
         "balance": balance,
         "expenses": formatted_expenses
@@ -151,24 +152,12 @@ def get_user_dashboard(user_id):
 
     expenses = database.get_expenses(user_id)
 
-    # --------------------------------------
-    # TOTAL EXPENSES
-    # --------------------------------------
-
     total_expenses = sum(
         expense[1]
         for expense in expenses
     )
 
-    # --------------------------------------
-    # BALANCE
-    # --------------------------------------
-
     balance = user[2] - total_expenses
-
-    # --------------------------------------
-    # SPENDING BY CATEGORY
-    # --------------------------------------
 
     spending_by_category = {}
 
@@ -181,10 +170,6 @@ def get_user_dashboard(user_id):
             spending_by_category[category] = 0
 
         spending_by_category[category] += amount
-
-    # --------------------------------------
-    # HIGHEST SPENDING CATEGORY
-    # --------------------------------------
 
     if spending_by_category:
 
@@ -202,10 +187,6 @@ def get_user_dashboard(user_id):
         highest_category = None
         highest_amount = 0
 
-    # --------------------------------------
-    # SAVINGS RATE
-    # --------------------------------------
-
     if user[2] > 0:
 
         savings_rate = (
@@ -215,10 +196,6 @@ def get_user_dashboard(user_id):
     else:
 
         savings_rate = 0
-
-    # --------------------------------------
-    # SPENDING WARNING
-    # --------------------------------------
 
     if total_expenses > user[2]:
 
@@ -238,15 +215,12 @@ def get_user_dashboard(user_id):
             "✅ Your spending is within a healthy range."
         )
 
-    # --------------------------------------
-    # RETURN DASHBOARD
-    # --------------------------------------
-
     return {
         "user": {
             "id": user[0],
             "name": user[1],
-            "income": user[2]
+            "income": user[2],
+            "email": user[3]
         },
 
         "income": user[2],

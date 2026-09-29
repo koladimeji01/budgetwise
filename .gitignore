@@ -1,5 +1,7 @@
 .env
+.env.test
 venv/
 __pycache__/
 *.pyc
 budgetwise.db
+test_budgetwise.db

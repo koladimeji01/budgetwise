@@ -3,8 +3,31 @@ import os
 from dotenv import load_dotenv
 
 
-# Load variables from .env
-load_dotenv()
+# ==========================================
+# DETECT ENVIRONMENT
+# ==========================================
+
+ENVIRONMENT = os.getenv(
+    "ENVIRONMENT",
+    "development"
+).lower()
+
+
+# ==========================================
+# LOAD ENVIRONMENT VARIABLES
+# ==========================================
+
+if ENVIRONMENT == "testing":
+
+    load_dotenv(
+        ".env.test"
+    )
+
+elif ENVIRONMENT == "development":
+
+    load_dotenv(
+        ".env"
+    )
 
 
 # ==========================================
@@ -23,7 +46,7 @@ APP_VERSION = os.getenv(
 
 
 # ==========================================
-# DATABASE SETTINGS
+# DATABASE
 # ==========================================
 
 DATABASE_NAME = os.getenv(
@@ -33,7 +56,7 @@ DATABASE_NAME = os.getenv(
 
 
 # ==========================================
-# JWT SETTINGS
+# AUTHENTICATION
 # ==========================================
 
 SECRET_KEY = os.getenv(
@@ -43,4 +66,27 @@ SECRET_KEY = os.getenv(
 ALGORITHM = os.getenv(
     "ALGORITHM",
     "HS256"
+)
+
+
+# ==========================================
+# SECURITY CHECK
+# ==========================================
+
+if ENVIRONMENT == "production":
+
+    if not SECRET_KEY:
+
+        raise RuntimeError(
+            "SECRET_KEY must be configured "
+            "in production."
+        )
+
+
+# ==========================================
+# ENVIRONMENT INFORMATION
+# ==========================================
+
+print(
+    f"BudgetWise environment: {ENVIRONMENT}"
 )
