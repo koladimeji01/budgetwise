@@ -83,7 +83,6 @@ def run_migrations():
 
     try:
 
-        # Enable foreign keys
         connection.execute(
             "PRAGMA foreign_keys = ON"
         )
@@ -103,9 +102,9 @@ def run_migrations():
             f"{current_version}"
         )
 
-        # ----------------------------------
+        # ==================================
         # MIGRATION 1
-        # ----------------------------------
+        # ==================================
 
         if current_version < 1:
 
@@ -153,9 +152,14 @@ def run_migrations():
             logger.info(
                 "Migration 1 applied successfully"
             )
-        # ----------------------------------
+
+        # ==================================
         # MIGRATION 2
-        # ----------------------------------
+        # ==================================
+
+        current_version = get_current_version(
+            connection
+        )
 
         if current_version < 2:
 
@@ -169,12 +173,6 @@ def run_migrations():
                 ALTER TABLE users
                 ADD COLUMN email TEXT
             """)
-            cursor.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS
-                idx_users_email
-                ON users(email)
-                WHERE email IS NOT NULL
-            """)
 
             record_migration(
                 connection,
@@ -185,9 +183,43 @@ def run_migrations():
             logger.info(
                 "Migration 2 applied successfully"
             )
-        # ----------------------------------
+
+        # ==================================
+        # MIGRATION 3
+        # ==================================
+
+        current_version = get_current_version(
+            connection
+        )
+
+        if current_version < 3:
+
+            logger.info(
+                "Applying migration 3"
+            )
+
+            cursor = connection.cursor()
+
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                idx_users_email
+                ON users(email)
+                WHERE email IS NOT NULL
+            """)
+
+            record_migration(
+                connection,
+                3,
+                "Add unique index for user emails"
+            )
+
+            logger.info(
+                "Migration 3 applied successfully"
+            )
+
+        # ==================================
         # FINAL VERSION
-        # ----------------------------------
+        # ==================================
 
         final_version = get_current_version(
             connection

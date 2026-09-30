@@ -3,6 +3,7 @@ import sqlite3
 from fastapi import APIRouter, HTTPException
 
 from app import database
+from app.email import send_welcome_email
 
 from app.auth import (
     hash_password,
@@ -24,10 +25,6 @@ router = APIRouter(
 )
 
 
-# ==========================================
-# CREATE USER
-# ==========================================
-
 @router.post(
     "/users",
     response_model=UserCreatedResponse,
@@ -35,31 +32,26 @@ router = APIRouter(
 )
 def create_user(user: User):
 
-    # Check username
     existing_user = database.get_user_by_name(
         user.name
     )
 
     if existing_user:
-
         raise HTTPException(
             status_code=400,
             detail="Username already exists"
         )
 
-    # Check email
     existing_email = database.get_user_by_email(
         user.email
     )
 
     if existing_email:
-
         raise HTTPException(
             status_code=400,
             detail="Email already exists"
         )
 
-    # Hash password
     hashed_password = hash_password(
         user.password
     )
@@ -84,6 +76,12 @@ def create_user(user: User):
         f"New user created: {user.name}"
     )
 
+    # Prepare welcome email
+    send_welcome_email(
+        recipient=str(user.email),
+        name=user.name
+    )
+
     return {
         "id": user_id,
         "name": user.name,
@@ -92,22 +90,16 @@ def create_user(user: User):
     }
 
 
-# ==========================================
-# LOGIN
-# ==========================================
-
 @router.post(
     "/login",
     summary="Login to BudgetWise"
 )
 def login(login_data: LoginRequest):
 
-    # Find user by username
     user = database.get_user_by_name(
         login_data.name
     )
 
-    # User does not exist
     if user is None:
 
         logger.warning(
@@ -120,17 +112,8 @@ def login(login_data: LoginRequest):
             detail="Invalid username or password"
         )
 
-    # Database structure:
-    #
-    # user[0] = id
-    # user[1] = name
-    # user[2] = income
-    # user[3] = password
-    # user[4] = email
-
     stored_password = user[3]
 
-    # Verify password
     password_is_correct = verify_password(
         login_data.password,
         stored_password
@@ -148,7 +131,6 @@ def login(login_data: LoginRequest):
             detail="Invalid username or password"
         )
 
-    # Create JWT token
     access_token = create_access_token(
         user[0]
     )

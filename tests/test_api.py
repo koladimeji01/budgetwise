@@ -21,6 +21,8 @@ from app.config import DATABASE_NAME
 
 from app.migrations.manager import run_migrations
 
+from unittest.mock import patch
+
 
 # ==========================================
 # TEST DATABASE SETUP
@@ -1091,3 +1093,45 @@ def test_dashboard_without_token(client):
     )
 
     assert response.status_code == 401
+
+    def test_registration_sends_welcome_email(client):
+
+     with patch(
+        "app.api.auth.send_welcome_email"
+    ) as mock_email:
+
+        response = client.post(
+            "/api/v1/users",
+            json={
+                "name": "emailuser",
+                "email": "emailuser@example.com",
+                "income": 300000,
+                "password": "password123"
+            }
+        )
+
+        assert response.status_code == 200
+
+        mock_email.assert_called_once_with(
+            recipient="emailuser@example.com",
+            name="emailuser"
+        )
+def test_welcome_email_content():
+
+    from app.email import send_welcome_email
+
+    result = send_welcome_email(
+        "test@example.com",
+        "Kehinde"
+    )
+
+    assert result["recipient"] == "test@example.com"
+
+    assert result["subject"] == (
+        "Welcome to BudgetWise"
+    )
+
+    assert "Kehinde" in result["body"]
+
+    assert "BudgetWise" in result["body"]
+        
