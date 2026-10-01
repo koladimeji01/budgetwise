@@ -1,5 +1,8 @@
 import os
 
+from unittest.mock import patch
+
+
 # ==========================================
 # USE TESTING ENVIRONMENT
 # ==========================================
@@ -20,8 +23,6 @@ from api import app
 from app.config import DATABASE_NAME
 
 from app.migrations.manager import run_migrations
-
-from unittest.mock import patch
 
 
 # ==========================================
@@ -89,31 +90,21 @@ def create_test_user(
 def login_test_user(
     client,
     name="testuser",
-    email="testuser@example.com",
     password="password123"
 ):
 
-    # Make sure the user exists.
-    #
-    # Each test starts with a fresh database,
-    # so login tests must create their user first.
-
-    existing_user = client.post(
-        "/api/v1/users",
-        json={
-            "name": name,
-            "email": email,
-            "income": 300000,
-            "password": password
-        }
+    # Make sure the test user exists
+    create_response = create_test_user(
+        client,
+        name=name,
+        email=f"{name}@example.com",
+        income=300000,
+        password=password
     )
 
-    # If the user already exists, that's okay.
-    # We only need the account available for login.
-
-    if existing_user.status_code not in [200, 400]:
-
-        return existing_user
+    # If the user already exists, continue to login.
+    # This makes the helper safe for tests that
+    # may create the user before calling it.
 
     response = client.post(
         "/api/v1/login",
@@ -124,6 +115,23 @@ def login_test_user(
     )
 
     return response
+
+
+# ==========================================
+# HELPER: GET TOKEN
+# ==========================================
+
+def get_test_token(client):
+
+    response = login_test_user(
+        client
+    )
+
+    assert response.status_code == 200
+
+    return response.json()[
+        "access_token"
+    ]
 
 
 # ==========================================
@@ -164,7 +172,9 @@ def test_health_check(client):
 
 def test_api_v1_home(client):
 
-    response = client.get("/api/v1/")
+    response = client.get(
+        "/api/v1/"
+    )
 
     assert response.status_code == 200
 
@@ -204,16 +214,11 @@ def test_create_user(client):
 
 def test_duplicate_username(client):
 
-    # Create the original user first
-
-    create_response = create_test_user(
+    first_response = create_test_user(
         client
     )
 
-    assert create_response.status_code == 200
-
-    # Try to create another user
-    # with the same username
+    assert first_response.status_code == 200
 
     response = client.post(
         "/api/v1/users",
@@ -240,16 +245,11 @@ def test_duplicate_username(client):
 
 def test_duplicate_email(client):
 
-    # Create the original user first
-
-    create_response = create_test_user(
+    first_response = create_test_user(
         client
     )
 
-    assert create_response.status_code == 200
-
-    # Try to create another user
-    # with the same email
+    assert first_response.status_code == 200
 
     response = client.post(
         "/api/v1/users",
@@ -318,8 +318,6 @@ def test_login(client):
 
 def test_wrong_password(client):
 
-    # Create user first
-
     create_test_user(
         client
     )
@@ -383,15 +381,9 @@ def test_profile_without_token(client):
 
 def test_profile_with_token(client):
 
-    login_response = login_test_user(
+    token = get_test_token(
         client
     )
-
-    assert login_response.status_code == 200
-
-    token = login_response.json()[
-        "access_token"
-    ]
 
     response = client.get(
         "/api/v1/users/me",
@@ -418,23 +410,6 @@ def test_profile_with_token(client):
     assert "total_expenses" in data
 
     assert "balance" in data
-
-
-# ==========================================
-# HELPER: GET TOKEN
-# ==========================================
-
-def get_test_token(client):
-
-    response = login_test_user(
-        client
-    )
-
-    assert response.status_code == 200
-
-    return response.json()[
-        "access_token"
-    ]
 
 
 # ==========================================
@@ -609,16 +584,24 @@ def test_delete_expense(client):
 
 
 # ==========================================
-# USER OWNERSHIP TEST
+# USER OWNERSHIP
 # ==========================================
 
 def test_user_cannot_modify_another_users_expense(
     client
 ):
 
-    # Create second user
+    first_response = create_test_user(
+        client,
+        name="firstuser",
+        email="firstuser@example.com",
+        income=300000,
+        password="password123"
+    )
 
-    create_response = create_test_user(
+    assert first_response.status_code == 200
+
+    second_response = create_test_user(
         client,
         name="seconduser",
         email="seconduser@example.com",
@@ -626,15 +609,17 @@ def test_user_cannot_modify_another_users_expense(
         password="password123"
     )
 
-    assert create_response.status_code == 200
+    assert second_response.status_code == 200
 
-    # Create first user and login
-
-    first_token = get_test_token(
-        client
+    first_login = login_test_user(
+        client,
+        name="firstuser",
+        password="password123"
     )
 
-    # First user creates expense
+    first_token = first_login.json()[
+        "access_token"
+    ]
 
     expense_response = client.post(
         "/api/v1/expenses",
@@ -655,22 +640,15 @@ def test_user_cannot_modify_another_users_expense(
         "id"
     ]
 
-    # Login second user
-
     second_login = login_test_user(
         client,
         name="seconduser",
-        email="seconduser@example.com",
         password="password123"
     )
-
-    assert second_login.status_code == 200
 
     second_token = second_login.json()[
         "access_token"
     ]
-
-    # Second user attempts update
 
     update_response = client.put(
         f"/api/v1/expenses/{expense_id}",
@@ -686,8 +664,6 @@ def test_user_cannot_modify_another_users_expense(
     )
 
     assert update_response.status_code == 404
-
-    # Second user attempts delete
 
     delete_response = client.delete(
         f"/api/v1/expenses/{expense_id}",
@@ -758,17 +734,12 @@ def test_dashboard_80_percent_warning(
     login_response = login_test_user(
         client,
         name="warninguser",
-        email="warninguser@example.com",
         password="password123"
     )
-
-    assert login_response.status_code == 200
 
     token = login_response.json()[
         "access_token"
     ]
-
-    # Spend 80% of income
 
     expense_response = client.post(
         "/api/v1/expenses",
@@ -821,11 +792,8 @@ def test_dashboard_overspending_warning(
     login_response = login_test_user(
         client,
         name="overspenduser",
-        email="overspenduser@example.com",
         password="password123"
     )
-
-    assert login_response.status_code == 200
 
     token = login_response.json()[
         "access_token"
@@ -1094,9 +1062,42 @@ def test_dashboard_without_token(client):
 
     assert response.status_code == 401
 
-    def test_registration_sends_welcome_email(client):
 
-     with patch(
+# ==========================================
+# WELCOME EMAIL CONTENT
+# ==========================================
+
+def test_welcome_email_content():
+
+    from app.email import send_welcome_email
+
+    result = send_welcome_email(
+        "test@example.com",
+        "Kehinde"
+    )
+
+    assert result["recipient"] == (
+        "test@example.com"
+    )
+
+    assert result["subject"] == (
+        "Welcome to BudgetWise"
+    )
+
+    assert "Kehinde" in result["body"]
+
+    assert "BudgetWise" in result["body"]
+
+
+# ==========================================
+# REGISTRATION SENDS WELCOME EMAIL
+# ==========================================
+
+def test_registration_sends_welcome_email(
+    client
+):
+
+    with patch(
         "app.api.auth.send_welcome_email"
     ) as mock_email:
 
@@ -1116,22 +1117,3 @@ def test_dashboard_without_token(client):
             recipient="emailuser@example.com",
             name="emailuser"
         )
-def test_welcome_email_content():
-
-    from app.email import send_welcome_email
-
-    result = send_welcome_email(
-        "test@example.com",
-        "Kehinde"
-    )
-
-    assert result["recipient"] == "test@example.com"
-
-    assert result["subject"] == (
-        "Welcome to BudgetWise"
-    )
-
-    assert "Kehinde" in result["body"]
-
-    assert "BudgetWise" in result["body"]
-        
